@@ -306,6 +306,7 @@
             <div><label for="u_name">Name</label><input id="u_name"></div>
             <div><label for="u_id">Login ID</label><input id="u_id" style="text-transform:uppercase;"></div>
             <div><label for="u_pwd">Password</label><input id="u_pwd"></div>
+            <div><label for="u_email">Email (for approval reminders)</label><input id="u_email" type="email" placeholder="name@example.com"></div>
             <div><label for="u_type">User type</label>
               <select id="u_type">
                 <option value="ADMIN">ADMIN</option>
@@ -334,13 +335,13 @@
 <script>
 /* ---------------- SEED DATA (from VBA_SHEET_FOR_SITE_BILLING.xlsm) ---------------- */
 const SEED_USERS = [
-  { name:"Sahi",    id:"SAHI",    password:"SAHI",    type:"DATA ENTRY" },
-  { name:"Harshil", id:"HARSHIL", password:"HARSHIL", type:"DATA ENTRY" },
-  { name:"Rahul",   id:"RAHUL",   password:"RAHUL",   type:"DATA ENTRY" },
-  { name:"Vinod",   id:"VINOD",   password:"VINOD",   type:"CHECKER & APPROVAL" },
-  { name:"Ramesh",  id:"RAMESH",  password:"RAMESH",  type:"RA BILL GENERATOR" },
-  { name:"Suresh",  id:"SURESH",  password:"SURESH",  type:"BILLING ENGINEER" },
-  { name:"Pradeep", id:"PRADEEP", password:"PRADEEP", type:"ADMIN" }
+  { name:"Sahi",    id:"SAHI",    password:"SAHI",    type:"DATA ENTRY", email:"" },
+  { name:"Harshil", id:"HARSHIL", password:"HARSHIL", type:"DATA ENTRY", email:"" },
+  { name:"Rahul",   id:"RAHUL",   password:"RAHUL",   type:"DATA ENTRY", email:"" },
+  { name:"Vinod",   id:"VINOD",   password:"VINOD",   type:"CHECKER & APPROVAL", email:"" },
+  { name:"Ramesh",  id:"RAMESH",  password:"RAMESH",  type:"RA BILL GENERATOR", email:"" },
+  { name:"Suresh",  id:"SURESH",  password:"SURESH",  type:"BILLING ENGINEER", email:"" },
+  { name:"Pradeep", id:"PRADEEP", password:"PRADEEP", type:"ADMIN", email:"" }
 ];
 
 const SETTINGS_FORMULAS = [
@@ -1545,10 +1546,13 @@ function renderWamList(){
 function renderUsers(){
   const isAdmin = currentUser.type === "ADMIN";
   const wrap = document.getElementById('usersTable');
-  let h = "<table><thead><tr><th>Name</th><th>ID</th><th>User type</th>" + (isAdmin ? "<th></th>" : "") + "</tr></thead><tbody>";
+  let h = "<table><thead><tr><th>Name</th><th>ID</th><th>Email</th><th>User type</th>" + (isAdmin ? "<th></th>" : "") + "</tr></thead><tbody>";
   DB.users.forEach(u=>{
-    h += `<tr><td>${u.name}</td><td>${u.id}</td><td>${u.type}</td>` +
-      (isAdmin ? `<td><button class="btn-red" onclick="deleteUser('${u.id}')">Delete</button></td>` : '') +
+    h += `<tr><td>${u.name}</td><td>${u.id}</td><td>${u.email||'—'}</td><td>${u.type}</td>` +
+      (isAdmin ? `<td>
+        <button class="btn-primary" onclick="editUserEmail('${u.id}')">${u.email ? 'Edit email' : 'Set email'}</button>
+        <button class="btn-red" onclick="deleteUser('${u.id}')">Delete</button>
+      </td>` : '') +
       `</tr>`;
   });
   h += "</tbody></table>";
@@ -1556,17 +1560,28 @@ function renderUsers(){
   const addCard = document.getElementById('u_name');
   if(addCard) addCard.closest('.card').style.display = isAdmin ? '' : 'none';
 }
+function editUserEmail(id){
+  const u = DB.users.find(x=>x.id===id);
+  if(!u) return;
+  const entered = prompt("Email for " + u.name + " (used for the daily approval reminder if this user is Checker & Approval):", u.email || "");
+  if(entered === null) return; // cancelled
+  u.email = entered.trim();
+  saveDB();
+  renderUsers();
+}
 function addUser(){
   const errBox = document.getElementById('usersErr');
-  const name = val('u_name'), id = val('u_id').trim().toUpperCase(), pwd = val('u_pwd'), type = val('u_type');
+  const name = val('u_name'), id = val('u_id').trim().toUpperCase(), pwd = val('u_pwd'), type = val('u_type'), email = val('u_email').trim();
   if(!name || !id || !pwd){ errBox.textContent = "Enter name, login ID and password."; errBox.style.display='block'; return; }
   if(DB.users.some(u=>u.id===id)){ errBox.textContent = "A user with login ID \""+id+"\" already exists. Duplicate entries are not allowed."; errBox.style.display='block'; return; }
+  if(type === "CHECKER & APPROVAL" && !email){ errBox.textContent = "Enter an email for this user — Checker & Approval users receive the daily pending-measurement reminder by email."; errBox.style.display='block'; return; }
   errBox.style.display = 'none';
-  DB.users.push({ name:name, id:id, password:pwd, type:type });
+  DB.users.push({ name:name, id:id, password:pwd, type:type, email:email });
   saveDB();
   document.getElementById('u_name').value='';
   document.getElementById('u_id').value='';
   document.getElementById('u_pwd').value='';
+  document.getElementById('u_email').value='';
   renderUsers();
 }
 function deleteUser(id){
@@ -1642,7 +1657,7 @@ function exportToExcel(){
   })));
   XLSX.utils.book_append_sheet(wb, amendSheet, "WO_Amendments");
 
-  const userSheet = XLSX.utils.json_to_sheet(DB.users.map(u=>({"NAME":u.name,"ID":u.id,"PASSWORD":u.password,"USER TYPE":u.type})));
+  const userSheet = XLSX.utils.json_to_sheet(DB.users.map(u=>({"NAME":u.name,"ID":u.id,"PASSWORD":u.password,"EMAIL":u.email||"","USER TYPE":u.type})));
   XLSX.utils.book_append_sheet(wb, userSheet, "User_DB");
 
   const settingsSheet = XLSX.utils.json_to_sheet(SETTINGS_FORMULAS.map(f=>({"Formula Type":f.type,"Default UOM":f.uom,"Description":f.desc})));
