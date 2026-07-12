@@ -324,7 +324,7 @@
 
       <div class="page" id="page-settings">
         <div class="page-title">Settings</div>
-        <div class="page-sub">Formula types used to calculate measured quantity.</div>
+        <div class="page-sub">Formula types used to calculate measured quantity, grouped by UOM.</div>
         <div class="card"><div class="table-wrap" id="settingsTable"></div></div>
       </div>
 
@@ -344,25 +344,54 @@ const SEED_USERS = [
   { name:"Pradeep", id:"PRADEEP", password:"PRADEEP", type:"ADMIN", email:"" }
 ];
 
-const SETTINGS_FORMULAS = [
-  { type:"Volume",     desc:"Nos × L × W × H",              uom:"Cum", fields:["nos","l","b","d"] },
-  { type:"Area",       desc:"L × H",                        uom:"Sqm", fields:["nos","l","b"] },
-  { type:"Manual",     desc:"Manual quantity",               uom:"—",   fields:[] },
-  { type:"Excavation", desc:"L × W × D",                    uom:"Cum", fields:["nos","l","b","d"] },
-  { type:"Circular",   desc:"π × D² ÷ 4 × Length",           uom:"Cum", fields:["nos","l","d"] },
-  { type:"DWall",      desc:"Panel length × thickness × depth", uom:"Cum", fields:["nos","l","b","d"] },
-  { type:"Nos",        desc:"Count",                         uom:"Nos", fields:["nos"] }
-];
-/* Field labels vary by formula/UOM so the measurement entry form only shows what's relevant */
-const FIELD_LABELS = {
-  Volume:     { nos:"Nos", l:"Length (L)", b:"Width (W)", d:"Height (H)" },
-  Area:       { nos:"Nos", l:"Length (L)", b:"Height (H)" },
-  Excavation: { nos:"Nos", l:"Length (L)", b:"Width (W)", d:"Depth (D)" },
-  Circular:   { nos:"Nos", l:"Length", d:"Dia (D)" },
-  DWall:      { nos:"Nos", l:"Panel length", b:"Thickness", d:"Depth" },
-  Nos:        { nos:"Nos" },
-  Manual:     {}
+/* ============================================================
+   FORMULA ENGINE — driven by UOM
+   Every UOM group maps to one or more calculation methods. When a
+   group has more than one method, the item-master form lets the
+   admin pick which one applies (e.g. Sqm/Sft can be L×W or L×H).
+   ============================================================ */
+const FORMULA_DEFS = {
+  Nos:         { label:"Count",                        desc:"Nos",                          fields:["nos"] },
+  Linear:      { label:"Linear (Nos × L)",              desc:"Nos × L",                      fields:["nos","l"] },
+  AreaLW:      { label:"Area (Nos × L × W)",             desc:"Nos × L × W",                  fields:["nos","l","b"] },
+  AreaLH:      { label:"Area (Nos × L × H)",             desc:"Nos × L × H",                  fields:["nos","l","d"] },
+  Volume:      { label:"Volume (Nos × L × W × D)",       desc:"Nos × L × W × D",              fields:["nos","l","b","d"] },
+  Circular:    { label:"Circular / Pile (π × D² ÷ 4 × L)", desc:"Nos × π/4 × D² × Length",    fields:["nos","l","d"] },
+  Weight:      { label:"Weight (Nos × Unit Weight)",     desc:"Nos × Unit Weight (BBS)",      fields:["nos","uw"] },
+  PercentBase: { label:"Percentage (% × Base qty)",      desc:"Base Qty × % ÷ 100",           fields:["pct","base"] },
+  Manual:      { label:"Manual entry",                   desc:"Manual quantity",              fields:[] }
 };
+/* Field labels vary by formula so the measurement entry form only shows what's relevant */
+const FIELD_LABELS = {
+  Nos:         { nos:"Nos" },
+  Linear:      { nos:"Nos", l:"Length (L)" },
+  AreaLW:      { nos:"Nos", l:"Length (L)", b:"Width (W)" },
+  AreaLH:      { nos:"Nos", l:"Length (L)", d:"Height (H)" },
+  Volume:      { nos:"Nos", l:"Length (L)", b:"Width (W)", d:"Depth (D)" },
+  Circular:    { nos:"Nos", l:"Length", d:"Dia (D)" },
+  Weight:      { nos:"Nos", uw:"Unit Weight (per piece)" },
+  PercentBase: { pct:"Percentage (%)", base:"Base Quantity" },
+  Manual:      {}
+};
+/* UOM groups — this is the table the formula is chosen from. Each group lists the concrete
+   unit abbreviations it covers, and the calculation method(s) available for that UOM. */
+const UOM_GROUPS = [
+  { group:"Nos",       units:["Nos"],        formulas:["Nos"] },
+  { group:"RMT / RFT", units:["RMT","RFT"],  formulas:["Linear"] },
+  { group:"Sqm / Sft", units:["Sqm","Sft"],  formulas:["AreaLW","AreaLH"] },
+  { group:"Cum / Cft", units:["Cum","Cft"],  formulas:["Volume","Circular"] },
+  { group:"Kg / MT",   units:["Kg","MT"],    formulas:["Weight","Manual"] },
+  { group:"LS / Job",  units:["LS","Job"],   formulas:["Manual"] },
+  { group:"%",         units:["%"],          formulas:["PercentBase","Manual"] }
+];
+function uomGroupOf(uom){
+  const u = (uom||'').trim().toLowerCase();
+  return UOM_GROUPS.find(g=>g.units.some(x=>x.toLowerCase()===u)) || null;
+}
+function formulaLabel(key){
+  const f = FORMULA_DEFS[key];
+  return f ? (f.label + " — " + f.desc) : key;
+}
 
 const SEED_PROJECTS = [
   { code:"GMLR", name:"GMLR TWIN TUNNEL", client:"BMC", location:"GOREGAON MUMBAI", startDate:"2026-07-06", endDate:"2029-04-01" },
@@ -380,13 +409,13 @@ const SEED_ITEMS = [
   { code:"RCC001", desc:"RCC Concrete", category:"Concrete", formulaType:"Volume", uom:"Cum", active:"Yes" },
   { code:"PCC001", desc:"PCC Concrete", category:"Concrete", formulaType:"Volume", uom:"Cum", active:"Yes" },
   { code:"ST001", desc:"Reinforcement Steel", category:"Steel", formulaType:"Manual", uom:"MT", active:"Yes" },
-  { code:"SH001", desc:"Shuttering", category:"Formwork", formulaType:"Area", uom:"Sqm", active:"Yes" },
-  { code:"EW001", desc:"Earthwork Excavation", category:"Earthwork", formulaType:"Excavation", uom:"Cum", active:"Yes" },
-  { code:"DW001", desc:"Diaphragm Wall", category:"D-Wall", formulaType:"DWall", uom:"Cum", active:"Yes" },
+  { code:"SH001", desc:"Shuttering", category:"Formwork", formulaType:"AreaLH", uom:"Sqm", active:"Yes" },
+  { code:"EW001", desc:"Earthwork Excavation", category:"Earthwork", formulaType:"Volume", uom:"Cum", active:"Yes" },
+  { code:"DW001", desc:"Diaphragm Wall", category:"D-Wall", formulaType:"Volume", uom:"Cum", active:"Yes" },
   { code:"PL001", desc:"Pile Concrete", category:"Piling", formulaType:"Circular", uom:"Cum", active:"Yes" },
   { code:"CC001", desc:"Core Cutting", category:"Testing", formulaType:"Nos", uom:"Nos", active:"Yes" },
-  { code:"WP001", desc:"Waterproofing", category:"Finishing", formulaType:"Area", uom:"Sqm", active:"Yes" },
-  { code:"FPO001", desc:"FPO Membrane", category:"Waterproofing", formulaType:"Area", uom:"Sqm", active:"Yes" },
+  { code:"WP001", desc:"Waterproofing", category:"Finishing", formulaType:"AreaLH", uom:"Sqm", active:"Yes" },
+  { code:"FPO001", desc:"FPO Membrane", category:"Waterproofing", formulaType:"AreaLH", uom:"Sqm", active:"Yes" },
   { code:"BC001", desc:"Brick work", category:"Brick", formulaType:"Volume", uom:"Cum", active:"Yes" },
   { code:"LS001", desc:"SKILL LABOUR", category:"LABOUR", formulaType:"Nos", uom:"Nos", active:"Yes" },
   { code:"LS002", desc:"UNSKILL LABOUR", category:"LABOUR", formulaType:"Nos", uom:"Nos", active:"Yes" }
@@ -443,7 +472,7 @@ const SEED_WOS = [
 
 function ms(sr,date,project,contractor,woNo,itemCode,desc,uom,loc,nos,l,b,d,qty,rate,employee){
   return { srNo:sr, date, project, contractor, woNo, itemCode, description:desc, uom, location:loc,
-    nos, l, b, d, qty, rate, amount:round2(qty*rate), employee, status:"Approved", remark:"", billed:false, billNo:null };
+    nos, l, b, d, uw:null, pct:null, base:null, qty, rate, amount:round2(qty*rate), employee, status:"Approved", remark:"", billed:false, billNo:null };
 }
 function round2(n){ return Math.round(n*1000)/1000; }
 const SEED_MEASUREMENTS = [
@@ -679,21 +708,23 @@ function setPage(page){
 function renderAll(){ /* nav already triggers first page render */ }
 
 /* ---------------- FORMULA ENGINE ---------------- */
-function calcQty(formulaType, nos, l, b, d){
-  const n = (nos===null||nos===''||isNaN(nos)) ? 1 : parseFloat(nos);
-  const L = parseFloat(l)||0, B = parseFloat(b)||0, D = parseFloat(d)||0;
+function calcQty(formulaType, v){
+  const n = (v.nos===null||v.nos===''||v.nos===undefined||isNaN(v.nos)) ? 1 : parseFloat(v.nos);
+  const L = parseFloat(v.l)||0, B = parseFloat(v.b)||0, D = parseFloat(v.d)||0;
+  const UW = parseFloat(v.uw)||0, PCT = parseFloat(v.pct)||0, BASE = parseFloat(v.base)||0;
   switch(formulaType){
-    case "Volume": return round2(n*L*B*D);
-    case "Excavation": return round2(n*L*B*D);
-    case "DWall": return round2(n*L*B*D);
-    case "Area": return round2(n*L*B);
-    case "Circular": return round2(n*Math.PI*D*D/4*L);
     case "Nos": return round2(n);
+    case "Linear": return round2(n*L);
+    case "AreaLW": return round2(n*L*B);
+    case "AreaLH": return round2(n*L*D);
+    case "Volume": return round2(n*L*B*D);
+    case "Circular": return round2(n*Math.PI*D*D/4*L);
+    case "Weight": return round2(n*UW);
+    case "PercentBase": return round2(BASE*PCT/100);
     case "Manual": return null;
     default: return null;
   }
 }
-function formulaLabel(t){ const f = SETTINGS_FORMULAS.find(x=>x.type===t); return f ? f.desc : t; }
 
 /* ---------------- DASHBOARD ---------------- */
 function renderDashboard(){
@@ -780,21 +811,22 @@ function renderMasters(){
       <button class="btn-primary" style="margin-top:14px;" onclick="addContractor()">Add contractor</button>
       <div class="err-msg" id="masterErr"></div>`;
   } else if(masterTab==="items"){
-    wrap.innerHTML = tableHTML(["Code","Description","Category","Formula type","UOM","Active"],
-      DB.items.map(i=>[i.code,i.desc,i.category,i.formulaType,i.uom,i.active]));
-    const opts = SETTINGS_FORMULAS.map(f=>`<option value="${f.type}">${f.type} (${f.uom})</option>`).join('');
+    wrap.innerHTML = tableHTML(["Code","Description","Category","UOM","Calculation method","Active"],
+      DB.items.map(i=>[i.code,i.desc,i.category,i.uom,formulaLabel(i.formulaType),i.active]));
+    const groupOpts = UOM_GROUPS.map(g=>`<option value="${g.group}">${g.group}</option>`).join('');
     formCard.innerHTML = `
       <div class="section-title">Add item</div>
       <div class="form-grid">
         <div><label>Item code</label><input id="mf_code"></div>
         <div><label>Description</label><input id="mf_desc"></div>
         <div><label>Category</label><input id="mf_category"></div>
-        <div><label>Formula type</label><select id="mf_formula" onchange="onMasterFormulaChange()">${opts}</select></div>
-        <div><label>UOM (auto-set from formula, editable)</label><input id="mf_uom"></div>
+        <div><label>UOM group</label><select id="mf_uomgroup" onchange="onMasterUomGroupChange()">${groupOpts}</select></div>
+        <div id="mf_calc_wrap"><label>Calculation method</label><select id="mf_calc"></select></div>
+        <div><label>UOM (editable)</label><input id="mf_uom"></div>
       </div>
       <button class="btn-primary" style="margin-top:14px;" onclick="addItem()">Add item</button>
       <div class="err-msg" id="masterErr"></div>`;
-    onMasterFormulaChange();
+    onMasterUomGroupChange();
   } else if(masterTab==="wos"){
     wrap.innerHTML = tableHTML(["WO no","Date","Project","Contractor","Item","UOM","WO qty","Rate","WO amount","Status"],
       DB.wos.map(w=>[w.woNo,w.woDate,w.project,w.contractor,w.description,w.uom,w.woQty,w.rate,fmtMoney(w.woAmount),w.status]));
@@ -844,17 +876,26 @@ function addContractor(){
   DB.contractors.push({code:code,name:name,gst:val('mf_gst'),pan:val('mf_pan'),contact:val('mf_contact'),mobile:val('mf_mobile'),active:"YES"});
   saveDB(); renderMasters();
 }
-function onMasterFormulaChange(){
-  const f = SETTINGS_FORMULAS.find(x=>x.type===val('mf_formula'));
+/* UOM group chosen -> populate calculation method options (hide the picker if only one exists) and default the UOM text */
+function onMasterUomGroupChange(){
+  const group = UOM_GROUPS.find(g=>g.group===val('mf_uomgroup'));
+  const calcSel = document.getElementById('mf_calc');
+  const calcWrap = document.getElementById('mf_calc_wrap');
   const uomBox = document.getElementById('mf_uom');
-  if(f && uomBox) uomBox.value = f.uom;
+  if(!group || !calcSel) return;
+  calcSel.innerHTML = group.formulas.map(f=>`<option value="${f}">${FORMULA_DEFS[f].label}</option>`).join('');
+  if(calcWrap) calcWrap.style.display = group.formulas.length>1 ? '' : 'none';
+  if(uomBox) uomBox.value = group.units[0];
 }
 function addItem(){
   const code = val('mf_code'), desc = val('mf_desc');
   if(!code || !desc){ showMasterErr("Enter item code and description."); return; }
   if(DB.items.some(i=>sameText(i.code,code))){ showMasterErr("An item with code \""+code+"\" already exists. Duplicate entries are not allowed."); return; }
+  const group = UOM_GROUPS.find(g=>g.group===val('mf_uomgroup'));
+  if(!group){ showMasterErr("Select a UOM group."); return; }
+  const calcKey = group.formulas.length>1 ? val('mf_calc') : group.formulas[0];
   clearMasterErr();
-  DB.items.push({code:code,desc:desc,category:val('mf_category'),formulaType:val('mf_formula'),uom:val('mf_uom'),active:"Yes"});
+  DB.items.push({code:code,desc:desc,category:val('mf_category'),formulaType:calcKey,uom:val('mf_uom'),active:"Yes"});
   saveDB(); renderMasters();
 }
 function addWO(){
@@ -886,6 +927,9 @@ function renderEntry(){
     <div id="wrap_l"><label id="lbl_l">L</label><input type="number" id="e_l" oninput="recalcEntryQty()"></div>
     <div id="wrap_b"><label id="lbl_b">B</label><input type="number" id="e_b" oninput="recalcEntryQty()"></div>
     <div id="wrap_d"><label id="lbl_d">D</label><input type="number" id="e_d" oninput="recalcEntryQty()"></div>
+    <div id="wrap_uw"><label id="lbl_uw">Unit Weight</label><input type="number" id="e_uw" oninput="recalcEntryQty()"></div>
+    <div id="wrap_pct"><label id="lbl_pct">Percentage (%)</label><input type="number" id="e_pct" oninput="recalcEntryQty()"></div>
+    <div id="wrap_base"><label id="lbl_base">Base Quantity</label><input type="number" id="e_base" oninput="recalcEntryQty()"></div>
     <div><label>Quantity</label><input type="number" id="e_qty" oninput="recalcEntryAmount()"></div>
     <div><label>Rate</label><input type="number" id="e_rate" readonly></div>
   `;
@@ -917,18 +961,18 @@ function onEntryItemChange(){
   document.getElementById('e_rate').value = line ? line.rate : '';
   const hint = document.getElementById('formulaHint');
   if(item){
-    hint.textContent = "Formula type: " + item.formulaType + " — " + formulaLabel(item.formulaType) + "  |  UOM: " + item.uom;
+    hint.textContent = "Calculation: " + formulaLabel(item.formulaType) + "  |  UOM: " + item.uom;
     document.getElementById('e_qty').readOnly = item.formulaType !== "Manual";
     applyFieldVisibility(item.formulaType);
   }
   recalcEntryQty();
 }
-/* Shows only the Nos/L/B/D fields that matter for this formula/UOM, with labels matching what each dimension means */
+/* Shows only the fields that matter for this formula, with labels matching what each one means */
 function applyFieldVisibility(formulaType){
-  const f = SETTINGS_FORMULAS.find(x=>x.type===formulaType);
+  const f = FORMULA_DEFS[formulaType];
   const activeFields = f ? f.fields : ["nos","l","b","d"];
   const labels = FIELD_LABELS[formulaType] || {};
-  ["nos","l","b","d"].forEach(key=>{
+  ["nos","l","b","d","uw","pct","base"].forEach(key=>{
     const wrap = document.getElementById('wrap_'+key);
     const lbl = document.getElementById('lbl_'+key);
     const input = document.getElementById('e_'+key);
@@ -947,11 +991,16 @@ function recalcEntryQty(){
   const item = DB.items.find(i=>i.code===itemCode);
   if(!item) return;
   if(item.formulaType==="Manual") return;
-  const nos = document.getElementById('e_nos').value;
-  const l = document.getElementById('e_l').value;
-  const b = document.getElementById('e_b').value;
-  const d = document.getElementById('e_d').value;
-  const q = calcQty(item.formulaType, nos, l, b, d);
+  const v = {
+    nos: document.getElementById('e_nos').value,
+    l: document.getElementById('e_l').value,
+    b: document.getElementById('e_b').value,
+    d: document.getElementById('e_d').value,
+    uw: document.getElementById('e_uw').value,
+    pct: document.getElementById('e_pct').value,
+    base: document.getElementById('e_base').value
+  };
+  const q = calcQty(item.formulaType, v);
   document.getElementById('e_qty').value = q===null ? '' : q;
 }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
@@ -973,6 +1022,9 @@ function submitMeasurement(){
     l: document.getElementById('e_l').value || null,
     b: document.getElementById('e_b').value || null,
     d: document.getElementById('e_d').value || null,
+    uw: document.getElementById('e_uw').value || null,
+    pct: document.getElementById('e_pct').value || null,
+    base: document.getElementById('e_base').value || null,
     qty: qty
   };
   const norm = x => (x===null||x===undefined) ? '' : String(x).trim().toLowerCase();
@@ -981,7 +1033,9 @@ function submitMeasurement(){
     norm(m.contractor)===norm(candidate.contractor) && norm(m.woNo)===norm(candidate.woNo) &&
     norm(m.itemCode)===norm(candidate.itemCode) && norm(m.location)===norm(candidate.location) &&
     norm(m.nos)===norm(candidate.nos) && norm(m.l)===norm(candidate.l) &&
-    norm(m.b)===norm(candidate.b) && norm(m.d)===norm(candidate.d) && norm(m.qty)===norm(candidate.qty)
+    norm(m.b)===norm(candidate.b) && norm(m.d)===norm(candidate.d) &&
+    norm(m.uw)===norm(candidate.uw) && norm(m.pct)===norm(candidate.pct) && norm(m.base)===norm(candidate.base) &&
+    norm(m.qty)===norm(candidate.qty)
   );
   if(isDuplicate){
     errBox.textContent = "This exact measurement (same date, WO, item, location and dimensions/qty) is already recorded. Duplicate entries are not allowed.";
@@ -1003,6 +1057,9 @@ function submitMeasurement(){
     l: document.getElementById('e_l').value || null,
     b: document.getElementById('e_b').value || null,
     d: document.getElementById('e_d').value || null,
+    uw: document.getElementById('e_uw').value || null,
+    pct: document.getElementById('e_pct').value || null,
+    base: document.getElementById('e_base').value || null,
     qty: qty,
     rate: rate,
     amount: round2(qty*rate),
@@ -1019,6 +1076,9 @@ function submitMeasurement(){
   document.getElementById('e_l').value='';
   document.getElementById('e_b').value='';
   document.getElementById('e_d').value='';
+  document.getElementById('e_uw').value='';
+  document.getElementById('e_pct').value='';
+  document.getElementById('e_base').value='';
   document.getElementById('e_qty').value='';
   renderMyEntries();
   renderDashboard();
@@ -1597,8 +1657,14 @@ function deleteUser(id){
   renderUsers();
 }
 function renderSettings(){
+  const rows = [];
+  UOM_GROUPS.forEach(g=>{
+    g.formulas.forEach(fKey=>{
+      rows.push([g.group, g.units.join(' / '), FORMULA_DEFS[fKey].label, FORMULA_DEFS[fKey].desc]);
+    });
+  });
   document.getElementById('settingsTable').innerHTML = tableHTML(
-    ["Formula type","Default UOM","Description"], SETTINGS_FORMULAS.map(f=>[f.type,f.uom,f.desc]));
+    ["UOM group","Units","Calculation method","Formula"], rows);
 }
 
 /* ---------------- EXCEL EXPORT ---------------- */
@@ -1660,7 +1726,13 @@ function exportToExcel(){
   const userSheet = XLSX.utils.json_to_sheet(DB.users.map(u=>({"NAME":u.name,"ID":u.id,"PASSWORD":u.password,"EMAIL":u.email||"","USER TYPE":u.type})));
   XLSX.utils.book_append_sheet(wb, userSheet, "User_DB");
 
-  const settingsSheet = XLSX.utils.json_to_sheet(SETTINGS_FORMULAS.map(f=>({"Formula Type":f.type,"Default UOM":f.uom,"Description":f.desc})));
+  const settingsRows = [];
+  UOM_GROUPS.forEach(g=>{
+    g.formulas.forEach(fKey=>{
+      settingsRows.push({"UOM Group":g.group,"Units":g.units.join(' / '),"Calculation Method":FORMULA_DEFS[fKey].label,"Formula":FORMULA_DEFS[fKey].desc});
+    });
+  });
+  const settingsSheet = XLSX.utils.json_to_sheet(settingsRows);
   XLSX.utils.book_append_sheet(wb, settingsSheet, "Settings");
 
   const stamp = new Date().toISOString().slice(0,19).replace(/[-:T]/g,'');
